@@ -225,6 +225,7 @@
       <div class="ai-box">
         <div class="ai-box-title">✨ Tạo câu hỏi bằng AI</div>
         <div class="ai-box-sub">Dán bài đọc vào — AI sẽ tự tạo <strong>4 dạng câu hỏi</strong>: Đọc hiểu, Từ vựng, Ngữ pháp, Cụm từ</div>
+
         <div class="form-group">
           <label>Đoạn văn / Bài đọc *</label>
           <textarea class="ai-textarea" id="ai-text" rows="8" placeholder="Paste bài đọc, đoạn văn, hoặc nội dung tiếng Anh bất kỳ vào đây...&#10;&#10;Ví dụ: The Amazon rainforest, often referred to as the 'lungs of the Earth', produces 20% of the world's oxygen..."></textarea>
@@ -560,84 +561,68 @@ async function generateWithAI() {
   const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = loadMsgs[mi++ % loadMsgs.length]; }, 2000);
 
   const isAll = numQRaw === 'all';
-  const allInstruction = isAll ? '\nIMPORTANT: Create ALL possible questions from the text. Do not stop early. Extract every single item you can find — do not limit to just a few examples.' : '';
+  const more = isAll ? ' ALL items, no limit.' : '';
   const buildPrompt = (type, n) => {
-    if (type === 'vocabulary') return `You are an English teacher making a Vietnamese-to-English vocabulary quiz.
-From the text, extract key vocabulary words. For each word, create a question with:
-- "q": the Vietnamese meaning of the word (e.g. "thiết bị")
-- "context": a SHORT Vietnamese description of when/how this word is used to distinguish it from similar words (e.g. "thiết bị điện tử thông minh, cầm tay")
-- "options": 4 English words — one correct, three plausible wrong alternatives of the same word type
-- "answer": zero-based index of correct option
-
-Example:
-{"q":"thiết bị","context":"đồ điện tử thông minh, cầm tay","options":["devices","appliances","machines","instruments"],"answer":0}
-{"q":"môi trường","context":"không khí, nước, đất xung quanh chúng ta","options":["environment","surrounding","nature","ecosystem"],"answer":0}
-
-CRITICAL: "q" and "context" MUST use proper Vietnamese Unicode diacritics.
-Create ${n} questions from: """${text}"""
-${allInstruction}
-Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","context":"ngữ cảnh tiếng Việt","options":["correct","wrong","wrong","wrong"],"answer":0}]}`;
-
-    if (type === 'phrases') return `You are an English teacher making a Vietnamese-to-English phrase quiz.
-From the text, extract collocations, phrasal verbs, fixed expressions. Each question: QUESTION = Vietnamese meaning, 4 OPTIONS = English phrases (one correct, three plausible wrong).
-Example: q:"đưa ra quyết định" options:["make a decision","do a decision","take a decision","have a decision"] answer:0
-CRITICAL: "q" MUST use proper Vietnamese Unicode diacritics (e.g. "từ bỏ" NOT "tu bo").
-Create ${n} questions from: """${text}"""
-${allInstruction}
-Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","options":["correct phrase","wrong","wrong","wrong"],"answer":0}]}`;
-
-    if (type === 'grammar') return `You are an English teacher creating grammar multiple-choice questions.
-From the text, create grammar questions testing tenses, articles, prepositions, verb forms, etc. All in English.
-Create ${n} questions from: """${text}"""
-${allInstruction}
-Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D"],"answer":0}]}
-"answer" is zero-based index of correct option.`;
-
-    // comprehension
-    return `You are an English teacher creating reading comprehension questions.
-Based on the text, ask questions about main ideas, details, inferences. All in English.
-Create ${n} questions from: """${text}"""
-${allInstruction}
-Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D"],"answer":0}]}
-"answer" is zero-based index of correct option.`;
+    const N = `N=${n}${more}`;
+    const R = 'JSON only.';
+    const fmt0 = '{"questions":[{"q":"","options":["","","",""],"answer":0}]}';
+    const fmt1 = '{"questions":[{"q":"","context":"","options":["","","",""],"answer":0}]}';
+    const vi = 'Use full Vietnamese diacritics in q+context.';
+    if (type === 'vocabulary') return [
+      'VI->EN vocab MCQ. q=VI meaning, context=short VI usage note(distinguish from synonyms), options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
+      'Ex:{"q":"thiết bị","context":"đồ điện tử cầm tay","options":["devices","appliances","machines","tools"],"answer":0}',
+      vi, N, 'T: + text + ', R, fmt1
+    ].join('\n');
+    if (type === 'phrases') return [
+      'VI->EN phrase MCQ. q=VI meaning, options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
+      'Ex:{"q":"đưa ra quyết định","options":["make a decision","do a decision","take a decision","have a decision"],"answer":0}',
+      vi, N, 'T: + text + ', R, fmt0
+    ].join('\n');
+    if (type === 'grammar') return [
+      'EN grammar MCQ from text. Test tenses/articles/prepositions/verb forms. 4 opts, answer=0-based index.',
+      N, 'T: + text + ', R, fmt0
+    ].join('\n');
+    return [
+      'EN reading comprehension MCQ. 4 opts, answer=0-based index.',
+      N, 'T: + text + ', R, fmt0
+    ].join('\n');
   };
 
+  // Build single combined prompt
+  const combinedPrompt = [
+    'Generate 4 types of MCQ from the text below. Return a single JSON object with 4 keys.',
+    isAll ? `Each type: ALL possible questions, no limit.` : `Each type: exactly ${numQ} questions.`,
+    '',
+    'VOCAB: q=Vietnamese meaning(with diacritics), context=short Vietnamese usage note to distinguish synonyms, options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
+    'PHRASES: q=Vietnamese meaning(with diacritics), options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
+    'GRAMMAR: EN grammar MCQ testing tenses/articles/prepositions. options=4 EN choices, answer=0-based index.',
+    'COMPREHENSION: EN reading comprehension MCQ. options=4 EN choices, answer=0-based index.',
+    '',
+    'TEXT:"""' + text + '"""',
+    '',
+    'Return ONLY this JSON structure, no markdown:',
+    '{"vocabulary":[{"q":"","context":"","options":["","","",""],"answer":0}],"phrases":[{"q":"","options":["","","",""],"answer":0}],"grammar":[{"q":"","options":["","","",""],"answer":0}],"comprehension":[{"q":"","options":["","","",""],"answer":0}]}'
+  ].join('\n');
+
   try {
-    const allResults = await Promise.all(types.map(async (t) => {
-      const prompt = buildPrompt(t.key, numQ).replace(/\$\{text\}/g, text).replace(/\$\{n\}/g, numQ).replace(/\$\{numQ\}/g, numQ);
-      const response = await puter.ai.chat(prompt, { model: 'gpt-4o-mini', max_tokens: isAll ? 4000 : 2000 });
-      let raw = typeof response === 'string' ? response
-        : (response?.message?.content ? (Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content)
-        : (Array.isArray(response?.content) ? response.content.map(b=>b.text||'').join('') : response?.content || ''));
-      raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return { ...t, questions: [] };
-      const data = JSON.parse(jsonMatch[0]);
-      const questions = (data.questions || []).map(q => ({ ...q, type: t.key }));
-      return { ...t, questions };
+    const response = await puter.ai.chat(combinedPrompt, { model: 'gpt-4o-mini', max_tokens: isAll ? 6000 : 3000 });
+    let raw = typeof response === 'string' ? response
+      : (response?.message?.content ? (Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content)
+      : (Array.isArray(response?.content) ? response.content.map(b=>b.text||'').join('') : response?.content || ''));
+    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON');
+    const parsed = JSON.parse(jsonMatch[0]);
+    const typeKeys = ['vocabulary','phrases','grammar','comprehension'];
+    const typeIcons2 = { vocabulary:'📝', phrases:'💬', grammar:'✏️', comprehension:'📖' };
+    const allResults = typeKeys.map(key => ({
+      key, icon: typeIcons2[key],
+      questions: (parsed[key] || []).map(q => ({ ...q, type: key }))
     }));
 
     clearInterval(mTimer);
 
-    // Auto-fix diacritics for vi types
-    const fixTypes = ['vocabulary','phrases'];
-    for (const res of allResults) {
-      if (!fixTypes.includes(res.key)) continue;
-      const needsFix = res.questions.some(q => !/[àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/u.test(q.q));
-      if (!needsFix) continue;
-      try {
-        const fixPrompt = 'Fix ALL "q" values in this JSON array so they have proper Vietnamese Unicode diacritics. Keep options/answer unchanged. Return ONLY the corrected JSON array.\n\n' + JSON.stringify(res.questions.map(q=>({q:q.q})));
-        const fixRes = await puter.ai.chat(fixPrompt, { model: 'gpt-4o-mini' });
-        let fixRaw = typeof fixRes === 'string' ? fixRes : (fixRes?.message?.content || fixRes?.content || '');
-        if (Array.isArray(fixRaw)) fixRaw = fixRaw.map(b=>b.text||'').join('');
-        fixRaw = fixRaw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-        const fixMatch = fixRaw.match(/\[[\s\S]*\]/);
-        if (fixMatch) {
-          const fixedQs = JSON.parse(fixMatch[0]);
-          res.questions = res.questions.map((q,i) => ({ ...q, q: fixedQs[i]?.q || q.q }));
-        }
-      } catch(e) {}
-    }
+    // diacritics handled in single prompt
 
     window._aiGeneratedByType = allResults;
     renderAIPreviewByType(allResults);
@@ -701,6 +686,8 @@ function clearAI() {
   document.getElementById('ai-preview').style.display = 'none';
   window._aiGeneratedQuestions = [];
 }
+
+
 
 // ===================== MANUAL =====================
 function addQuestion(prefill = null) {
