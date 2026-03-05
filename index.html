@@ -332,12 +332,20 @@
     <div style="display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="retryQuiz()">🔄 Làm lại</button>
       <button class="btn btn-secondary" onclick="toggleReview()">📋 Xem đáp án</button>
+      <button class="btn btn-secondary" id="btn-source" onclick="toggleSource()" style="display:none">📄 Xem bài đọc</button>
       <button class="btn btn-secondary" onclick="showPage('home')">🏠 Trang chủ</button>
     </div>
   </div>
   <div id="review-section" style="display:none;margin-top:24px">
     <h2>Chi tiết đáp án</h2>
     <div id="review-list"></div>
+  </div>
+
+  <div id="source-section" style="display:none;margin-top:24px">
+    <h2>📄 Bài đọc gốc</h2>
+    <div class="card">
+      <div id="source-text-content" style="font-size:15px;line-height:1.85;white-space:pre-wrap;color:var(--text)"></div>
+    </div>
   </div>
 </div>
 
@@ -385,7 +393,8 @@ async function loadQuizzes() {
     const data = await sb('quizzes?select=*&order=created_at.desc');
     quizzes = (data || []).map(q => ({
       id: q.id, name: q.name, desc: q.description,
-      time: q.time_minutes, aiGenerated: q.ai_generated, questions: q.questions
+      time: q.time_minutes, aiGenerated: q.ai_generated,
+      questions: q.questions, sourceText: q.source_text || ''
     }));
   } catch(e) { toast('Lỗi kết nối Supabase: ' + e.message, 'error'); }
   finally { setLoading(false); }
@@ -394,7 +403,9 @@ async function loadQuizzes() {
 async function dbSaveQuiz(quiz) {
   const payload = {
     name: quiz.name, description: quiz.desc || '',
-    time_minutes: quiz.time, ai_generated: quiz.aiGenerated || false, questions: quiz.questions
+    time_minutes: quiz.time, ai_generated: quiz.aiGenerated || false,
+    questions: quiz.questions,
+    source_text: quiz.sourceText || null
   };
   if (editingQuizId) {
     await sb(`quizzes?id=eq.${editingQuizId}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -548,11 +559,19 @@ async function generateWithAI() {
 
   const buildPrompt = (type, n) => {
     if (type === 'vocabulary') return `You are an English teacher making a Vietnamese-to-English vocabulary quiz.
-From the text, extract key vocabulary words. Each question: QUESTION = Vietnamese meaning, 4 OPTIONS = English words (one correct, three plausible wrong of same word type).
-Example: q:"môi trường" options:["environment","surrounding","nature","ecosystem"] answer:0
-CRITICAL: "q" MUST use proper Vietnamese Unicode diacritics (e.g. "môi trường" NOT "moi truong").
+From the text, extract key vocabulary words. For each word, create a question with:
+- "q": the Vietnamese meaning of the word (e.g. "thiết bị")
+- "context": a SHORT Vietnamese description of when/how this word is used to distinguish it from similar words (e.g. "thiết bị điện tử thông minh, cầm tay")
+- "options": 4 English words — one correct, three plausible wrong alternatives of the same word type
+- "answer": zero-based index of correct option
+
+Example:
+{"q":"thiết bị","context":"đồ điện tử thông minh, cầm tay","options":["devices","appliances","machines","instruments"],"answer":0}
+{"q":"môi trường","context":"không khí, nước, đất xung quanh chúng ta","options":["environment","surrounding","nature","ecosystem"],"answer":0}
+
+CRITICAL: "q" and "context" MUST use proper Vietnamese Unicode diacritics.
 Create ${n} questions from: """${text}"""
-Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","options":["correct","wrong","wrong","wrong"],"answer":0}]}`;
+Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","context":"ngữ cảnh tiếng Việt","options":["correct","wrong","wrong","wrong"],"answer":0}]}`;
 
     if (type === 'phrases') return `You are an English teacher making a Vietnamese-to-English phrase quiz.
 From the text, extract collocations, phrasal verbs, fixed expressions. Each question: QUESTION = Vietnamese meaning, 4 OPTIONS = English phrases (one correct, three plausible wrong).
@@ -661,6 +680,8 @@ function addAIQuestionsToQuiz() {
   const allQs = allResults.flatMap(r => r.questions);
   if (!allQs.length) return;
   pendingQuestions.push(...allQs);
+  // Save source text for review after quiz
+  window._pendingSourceText = document.getElementById('ai-text').value.trim();
   renderAllQuestions();
   document.getElementById('ai-preview').style.display = 'none';
   document.getElementById('ai-text').value = '';
@@ -756,7 +777,7 @@ async function saveQuiz() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '⏳ Đang lưu lên Supabase...'; }
   try {
     setLoading(true);
-    await dbSaveQuiz({ name, time, desc, questions: allQ, aiGenerated: pendingQuestions.length > 0 });
+    await dbSaveQuiz({ name, time, desc, questions: allQ, aiGenerated: pendingQuestions.length > 0, sourceText: window._pendingSourceText || '' });
     clearForm();
     toast('✅ Đã lưu bộ đề lên Supabase!', 'success');
     showPage('home');
@@ -839,7 +860,9 @@ function renderQuestion() {
   document.getElementById('quiz-play-title').textContent = currentQuiz.name;
   document.getElementById('progress-fill').style.width = ((currentQ+1)/total*100)+'%';
   document.getElementById('q-counter').textContent = `Câu ${currentQ+1} / ${total}`;
-  document.getElementById('question-text').textContent = `${currentQ+1}. ${q.q}`;
+  const contextHtml = (q.context && q.type === 'vocabulary')
+    ? `<div style="font-size:13px;color:var(--muted);margin-top:4px;font-style:italic">💡 ${q.context}</div>` : '';
+  document.getElementById('question-text').innerHTML = `<span>${currentQ+1}. ${q.q}</span>${contextHtml}`;
   const letters = ['A','B','C','D'];
   document.getElementById('options-container').innerHTML = q.options.map((o,i) =>
     `<button class="option-btn ${userAnswers[currentQ]===i?'selected':''}" onclick="selectOption(${i})" ${userAnswers[currentQ]!==null?'disabled':''}>
@@ -917,19 +940,37 @@ async function finishQuiz() {
   document.getElementById('review-list').innerHTML = qs.map((q,i)=>{
     const ua=userAnswers[i]; const ok=ua===q.answer;
     return `<div class="review-item ${ok?'correct':'wrong'}">
-      <div class="review-q">${i+1}. ${q.q}</div>
+      <div class="review-q">${i+1}. ${q.q}${q.context && q.type==='vocabulary' ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">💡 ${q.context}</div>` : ''}</div>
       <div class="review-answer">
         ${ua!==null?`Bạn chọn: <strong style="color:${ok?'var(--success)':'var(--danger)'}">${['A','B','C','D'][ua]}. ${q.options[ua]}</strong><br>`:'<span style="color:var(--warning)">Chưa trả lời</span><br>'}
         Đáp án đúng: <strong style="color:var(--success)">${['A','B','C','D'][q.answer]}. ${q.options[q.answer]}</strong>
       </div></div>`;}).join('');
 
   document.getElementById('review-section').style.display='none';
+  document.getElementById('source-section').style.display='none';
+
+  // Show "Xem bài đọc" button only if source text exists
+  const srcText = currentQuiz.sourceText || '';
+  const btnSrc = document.getElementById('btn-source');
+  if (srcText) {
+    btnSrc.style.display = 'inline-flex';
+    document.getElementById('source-text-content').textContent = srcText;
+  } else {
+    btnSrc.style.display = 'none';
+  }
+
   showPage('result');
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
 }
 
 function toggleReview() {
   const s=document.getElementById('review-section');
+  s.style.display=s.style.display==='none'?'block':'none';
+  if(s.style.display==='block') s.scrollIntoView({behavior:'smooth'});
+}
+
+function toggleSource() {
+  const s=document.getElementById('source-section');
   s.style.display=s.style.display==='none'?'block':'none';
   if(s.style.display==='block') s.scrollIntoView({behavior:'smooth'});
 }
