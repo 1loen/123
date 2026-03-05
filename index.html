@@ -574,9 +574,9 @@ async function generateWithAI() {
       vi, 'Make ' + N + ' questions. T: + text + ', R, fmt1
     ].join('\n'),
     phrases: [
-      'VI->EN phrase MCQ. q=VI meaning, options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
-      'Ex:{"q":"đưa ra quyết định","options":["make a decision","do a decision","take a decision","have a decision"],"answer":0}',
-      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt0
+      'VI->EN phrase MCQ. q=VI meaning, context=short VI note on when/how this phrase is used, options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
+      'Ex:{"q":"tạo ra điều kiện","context":"dùng trong văn phong trang trọng/học thuật","options":["create conditions","make conditions","produce conditions","develop conditions"],"answer":0}',
+      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt1
     ].join('\n'),
     grammar: [
       'EN grammar MCQ. Test tenses/articles/prepositions/verb forms. 4 opts, answer=0-based index.',
@@ -795,18 +795,21 @@ function selectMode(id) {
     phrases: 'Nghĩa tiếng Việt → chọn cụm từ tiếng Anh'
   };
 
-  const hasTypes = quiz.questions.some(q => q.type);
+  // Chỉ giữ vocabulary và phrases, bỏ grammar/comprehension
+  const allowedQuestions = quiz.questions.filter(q => q.type === 'vocabulary' || q.type === 'phrases');
+
+  const hasTypes = allowedQuestions.some(q => q.type);
   if (!hasTypes) { startQuiz(id, null); return; }
 
   const typeCounts = {};
-  quiz.questions.forEach(q => { const t = q.type||'comprehension'; typeCounts[t]=(typeCounts[t]||0)+1; });
+  allowedQuestions.forEach(q => { const t = q.type; typeCounts[t]=(typeCounts[t]||0)+1; });
 
   document.getElementById('mode-quiz-title').textContent = quiz.name;
   document.getElementById('mode-list').innerHTML = [
     `<div class="mode-card" onclick="startQuiz('${id}',null)">
       <div class="mode-icon">🎯</div>
-      <div class="mode-info"><div class="mode-name">Tất cả dạng</div><div class="mode-desc">Luyện tập toàn bộ ${quiz.questions.length} câu hỏi</div></div>
-      <div class="mode-count">${quiz.questions.length} câu</div>
+      <div class="mode-info"><div class="mode-name">Tất cả dạng</div><div class="mode-desc">Luyện tập toàn bộ ${allowedQuestions.length} câu hỏi</div></div>
+      <div class="mode-count">${allowedQuestions.length} câu</div>
     </div>`,
     ...Object.keys(typeMap).map(t => {
       const count = typeCounts[t]||0;
@@ -824,9 +827,11 @@ function selectMode(id) {
 function startQuiz(id, filterType) {
   const quiz = quizzes.find(q => q.id === id);
   if (!quiz) return;
+  // Luôn lọc bỏ grammar và comprehension
+  const allowed = quiz.questions.filter(q => q.type === 'vocabulary' || q.type === 'phrases' || !q.type);
   const filteredQuestions = filterType
-    ? quiz.questions.filter(q => (q.type||'comprehension') === filterType)
-    : quiz.questions;
+    ? allowed.filter(q => q.type === filterType)
+    : allowed;
   currentQuiz = { ...quiz, questions: filteredQuestions };
   if (!currentQuiz) return;
   currentQ = 0;
@@ -843,7 +848,7 @@ function renderQuestion() {
   document.getElementById('quiz-play-title').textContent = currentQuiz.name;
   document.getElementById('progress-fill').style.width = ((currentQ+1)/total*100)+'%';
   document.getElementById('q-counter').textContent = `Câu ${currentQ+1} / ${total}`;
-  const contextHtml = (q.context && q.type === 'vocabulary')
+  const contextHtml = (q.context && (q.type === 'vocabulary' || q.type === 'phrases'))
     ? `<div style="font-size:13px;color:var(--muted);margin-top:4px;font-style:italic">💡 ${q.context}</div>` : '';
   document.getElementById('question-text').innerHTML = `<span>${currentQ+1}. ${q.q}</span>${contextHtml}`;
   const letters = ['A','B','C','D'];
