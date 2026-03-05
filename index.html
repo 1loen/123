@@ -540,7 +540,9 @@ async function generateWithAI() {
   if (!text) { toast('Vui lòng nhập bài đọc!', 'error'); return; }
 
   const numQRaw = document.getElementById('ai-num-q').value;
-  const numQ = numQRaw === 'all' ? 'as many as possible' : numQRaw;
+  const numQ = numQRaw === 'all'
+    ? 'ALL possible questions — do NOT limit yourself, extract every single phrase/word/concept/grammar point you can find in the text. The more the better.'
+    : numQRaw;
 
   const types = [
     { key: 'comprehension', label: 'reading comprehension', icon: '📖' },
@@ -557,6 +559,8 @@ async function generateWithAI() {
   let mi = 0;
   const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = loadMsgs[mi++ % loadMsgs.length]; }, 2000);
 
+  const isAll = numQRaw === 'all';
+  const allInstruction = isAll ? '\nIMPORTANT: Create ALL possible questions from the text. Do not stop early. Extract every single item you can find — do not limit to just a few examples.' : '';
   const buildPrompt = (type, n) => {
     if (type === 'vocabulary') return `You are an English teacher making a Vietnamese-to-English vocabulary quiz.
 From the text, extract key vocabulary words. For each word, create a question with:
@@ -571,6 +575,7 @@ Example:
 
 CRITICAL: "q" and "context" MUST use proper Vietnamese Unicode diacritics.
 Create ${n} questions from: """${text}"""
+${allInstruction}
 Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","context":"ngữ cảnh tiếng Việt","options":["correct","wrong","wrong","wrong"],"answer":0}]}`;
 
     if (type === 'phrases') return `You are an English teacher making a Vietnamese-to-English phrase quiz.
@@ -578,11 +583,13 @@ From the text, extract collocations, phrasal verbs, fixed expressions. Each ques
 Example: q:"đưa ra quyết định" options:["make a decision","do a decision","take a decision","have a decision"] answer:0
 CRITICAL: "q" MUST use proper Vietnamese Unicode diacritics (e.g. "từ bỏ" NOT "tu bo").
 Create ${n} questions from: """${text}"""
+${allInstruction}
 Return ONLY valid JSON: {"questions":[{"q":"tiếng Việt","options":["correct phrase","wrong","wrong","wrong"],"answer":0}]}`;
 
     if (type === 'grammar') return `You are an English teacher creating grammar multiple-choice questions.
 From the text, create grammar questions testing tenses, articles, prepositions, verb forms, etc. All in English.
 Create ${n} questions from: """${text}"""
+${allInstruction}
 Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D"],"answer":0}]}
 "answer" is zero-based index of correct option.`;
 
@@ -590,6 +597,7 @@ Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D
     return `You are an English teacher creating reading comprehension questions.
 Based on the text, ask questions about main ideas, details, inferences. All in English.
 Create ${n} questions from: """${text}"""
+${allInstruction}
 Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D"],"answer":0}]}
 "answer" is zero-based index of correct option.`;
   };
@@ -597,7 +605,7 @@ Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D
   try {
     const allResults = await Promise.all(types.map(async (t) => {
       const prompt = buildPrompt(t.key, numQ).replace(/\$\{text\}/g, text).replace(/\$\{n\}/g, numQ).replace(/\$\{numQ\}/g, numQ);
-      const response = await puter.ai.chat(prompt, { model: 'claude-sonnet-4-5' });
+      const response = await puter.ai.chat(prompt, { model: 'claude-sonnet-4-5', max_tokens: isAll ? 4000 : 2000 });
       let raw = typeof response === 'string' ? response
         : (response?.message?.content ? (Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content)
         : (Array.isArray(response?.content) ? response.content.map(b=>b.text||'').join('') : response?.content || ''));
