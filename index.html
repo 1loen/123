@@ -154,6 +154,16 @@
   .toast.error { background: var(--danger); }
   @keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
 
+  .mode-card { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 20px 24px; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+  .mode-card:hover { border-color: var(--accent); background: var(--accent-light); }
+  .mode-icon { font-size: 32px; flex-shrink: 0; }
+  .mode-info { flex: 1; }
+  .mode-name { font-weight: 700; font-size: 16px; margin-bottom: 3px; }
+  .mode-desc { font-size: 13px; color: var(--muted); }
+  .mode-count { font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-light); padding: 4px 12px; border-radius: 20px; flex-shrink: 0; }
+  .mode-card.disabled { opacity: .4; cursor: not-allowed; }
+  .mode-card.disabled:hover { border-color: var(--border); background: var(--surface); }
+
   @media (max-width: 600px) {
     .form-row, .options-grid, .preview-opts { grid-template-columns: 1fr; }
     .result-grid { grid-template-columns: repeat(2, 1fr); }
@@ -214,32 +224,20 @@
     <div id="ai-panel">
       <div class="ai-box">
         <div class="ai-box-title">✨ Tạo câu hỏi bằng AI</div>
-        <div class="ai-box-sub">Dán đoạn văn, bài đọc hoặc nội dung tiếng Anh bất kỳ — AI sẽ tự tạo câu hỏi trắc nghiệm</div>
+        <div class="ai-box-sub">Dán bài đọc vào — AI sẽ tự tạo <strong>4 dạng câu hỏi</strong>: Đọc hiểu, Từ vựng, Ngữ pháp, Cụm từ</div>
+
         <div class="form-group">
           <label>Đoạn văn / Bài đọc *</label>
           <textarea class="ai-textarea" id="ai-text" rows="8" placeholder="Paste bài đọc, đoạn văn, hoặc nội dung tiếng Anh bất kỳ vào đây...&#10;&#10;Ví dụ: The Amazon rainforest, often referred to as the 'lungs of the Earth', produces 20% of the world's oxygen..."></textarea>
         </div>
-        <div class="form-row" style="margin-bottom:0">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Số câu hỏi muốn tạo</label>
-            <select id="ai-num-q">
-              <option value="3">3 câu</option>
-              <option value="5" selected>5 câu</option>
-              <option value="8">8 câu</option>
-              <option value="10">10 câu</option>
-              <option value="all">Tất cả có trong bài</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Dạng câu hỏi</label>
-            <select id="ai-q-type">
-              <option value="comprehension">Đọc hiểu (comprehension)</option>
-              <option value="vocabulary">Từ vựng (vocabulary)</option>
-              <option value="grammar">Ngữ pháp (grammar)</option>
-              <option value="phrases">Cụm từ / Phrases</option>
-              <option value="mixed">Tổng hợp (mixed)</option>
-            </select>
-          </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Số câu hỏi mỗi dạng</label>
+          <select id="ai-num-q">
+            <option value="3">3 câu / dạng</option>
+            <option value="5" selected>5 câu / dạng</option>
+            <option value="8">8 câu / dạng</option>
+            <option value="all">Tất cả có trong bài</option>
+          </select>
         </div>
       </div>
 
@@ -293,6 +291,16 @@
   </div>
 </div>
 
+<!-- MODE SELECT -->
+<div id="page-mode" class="page">
+  <h1 id="mode-quiz-title"></h1>
+  <p class="subtitle">Chọn dạng câu hỏi bạn muốn luyện tập</p>
+  <div id="mode-list"></div>
+  <div style="margin-top:16px">
+    <button class="btn btn-secondary" onclick="showPage('home')">← Quay lại</button>
+  </div>
+</div>
+
 <!-- QUIZ PLAY -->
 <div id="page-quiz" class="page">
   <div id="quiz-header">
@@ -325,12 +333,20 @@
     <div style="display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="retryQuiz()">🔄 Làm lại</button>
       <button class="btn btn-secondary" onclick="toggleReview()">📋 Xem đáp án</button>
+      <button class="btn btn-secondary" id="btn-source" onclick="toggleSource()" style="display:none">📄 Xem bài đọc</button>
       <button class="btn btn-secondary" onclick="showPage('home')">🏠 Trang chủ</button>
     </div>
   </div>
   <div id="review-section" style="display:none;margin-top:24px">
     <h2>Chi tiết đáp án</h2>
     <div id="review-list"></div>
+  </div>
+
+  <div id="source-section" style="display:none;margin-top:24px">
+    <h2>📄 Bài đọc gốc</h2>
+    <div class="card">
+      <div id="source-text-content" style="font-size:15px;line-height:1.85;white-space:pre-wrap;color:var(--text)"></div>
+    </div>
   </div>
 </div>
 
@@ -378,7 +394,8 @@ async function loadQuizzes() {
     const data = await sb('quizzes?select=*&order=created_at.desc');
     quizzes = (data || []).map(q => ({
       id: q.id, name: q.name, desc: q.description,
-      time: q.time_minutes, aiGenerated: q.ai_generated, questions: q.questions
+      time: q.time_minutes, aiGenerated: q.ai_generated,
+      questions: q.questions, sourceText: q.source_text || ''
     }));
   } catch(e) { toast('Lỗi kết nối Supabase: ' + e.message, 'error'); }
   finally { setLoading(false); }
@@ -387,7 +404,9 @@ async function loadQuizzes() {
 async function dbSaveQuiz(quiz) {
   const payload = {
     name: quiz.name, description: quiz.desc || '',
-    time_minutes: quiz.time, ai_generated: quiz.aiGenerated || false, questions: quiz.questions
+    time_minutes: quiz.time, ai_generated: quiz.aiGenerated || false,
+    questions: quiz.questions,
+    source_text: quiz.sourceText || null
   };
   if (editingQuizId) {
     await sb(`quizzes?id=eq.${editingQuizId}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -444,6 +463,7 @@ function showPage(name) {
   });
   if (name === 'home') loadQuizzes().then(renderQuizList);
   if (name === 'leaderboard') loadLeaderboard().then(renderLeaderboard);
+  // 'mode' and 'quiz' and 'result' pages are handled dynamically
 }
 
 function switchTab(tab) {
@@ -480,7 +500,7 @@ function renderQuizList() {
         </div>
       </div>
       <div class="quiz-actions">
-        <button class="btn btn-primary btn-sm" onclick="startQuiz('${q.id}')">▶ Bắt đầu</button>
+        <button class="btn btn-primary btn-sm" onclick="selectMode('${q.id}')">▶ Bắt đầu</button>
         <button class="btn btn-secondary btn-sm" onclick="editQuiz('${q.id}')">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="deleteQuiz('${q.id}')">🗑</button>
       </div>
@@ -521,106 +541,138 @@ async function generateWithAI() {
   if (!text) { toast('Vui lòng nhập bài đọc!', 'error'); return; }
 
   const numQRaw = document.getElementById('ai-num-q').value;
-  const numQ = numQRaw === 'all' ? 'as many as possible (extract every possible question the text supports)' : numQRaw;
-  const qType = document.getElementById('ai-q-type').value;
-  const typeLabels = { comprehension: 'reading comprehension', vocabulary: 'vocabulary in context', grammar: 'grammar', phrases: 'common phrases, collocations, and phrasal verbs', mixed: 'mixed (comprehension, vocabulary, and grammar)' };
-  const prompt = qType === 'phrases'
-    ? `You are an English teacher making a Vietnamese-to-English phrase quiz.
-From the text, extract collocations, phrasal verbs, fixed expressions and idioms.
-Each question: the QUESTION is the Vietnamese meaning of the phrase. The 4 OPTIONS are English phrases/collocations - one correct, three plausible but wrong alternatives.
+  const numQ = numQRaw === 'all'
+    ? 'ALL possible questions — do NOT limit yourself, extract every single phrase/word/concept/grammar point you can find in the text. The more the better.'
+    : numQRaw;
 
-Example:
-q: "đưa ra quyết định"  -> correct option: "make a decision", wrong: "do a decision", "take a decision", "have a decision"
-q: "từ bỏ"              -> correct option: "give up", wrong: "give in", "give off", "give out"
-q: "chịu trách nhiệm"   -> correct option: "take responsibility", wrong: "make responsibility", "do responsibility", "have responsibility"
-
-CRITICAL: The "q" field MUST be in proper Vietnamese WITH full diacritical marks (dấu tiếng Việt). 
-For example: "đưa ra quyết định" NOT "dua ra quyet dinh". Always use Unicode Vietnamese characters.
-
-Now create ${numQ} questions from this text:
-TEXT: ${text}
-
-Return ONLY valid JSON encoded in UTF-8, no markdown:
-{"questions":[{"q":"nghĩa tiếng Việt có dấu đầy đủ","options":["correct English phrase","wrong phrase","wrong phrase","wrong phrase"],"answer":0}]}`
-    : `You are an English language teacher creating a multiple-choice quiz for Vietnamese students.
-Based on the following English text, create ${numQ} ${typeLabels[qType]} questions.
-TEXT: ${text}
-Each question has exactly 4 options. One correct answer. All in English. Return ONLY valid JSON, no markdown.
-Format: {"questions":[{"q":"Question?","options":["A","B","C","D"],"answer":0}]}
-"answer" is the zero-based index of the correct option.`;
+  const types = [
+    { key: 'comprehension', label: 'reading comprehension', icon: '📖' },
+    { key: 'vocabulary',    label: 'vocabulary',            icon: '📝' },
+    { key: 'grammar',       label: 'grammar',               icon: '✏️'  },
+    { key: 'phrases',       label: 'phrases/collocations',  icon: '💬' },
+  ];
 
   document.getElementById('btn-generate').disabled = true;
   document.getElementById('ai-loading').classList.add('visible');
   document.getElementById('ai-preview').style.display = 'none';
 
-  const msgs = numQRaw === 'all'
-    ? ['AI đang đọc toàn bộ bài...','Đang tìm tất cả nội dung...','Đang tạo nhiều câu hỏi...','Bài dài nên hơi lâu xíu...']
-    : ['AI đang đọc bài...','Đang phân tích nội dung...','Đang tạo câu hỏi...','Sắp xong rồi...'];
+  const loadMsgs = ['AI đang đọc bài...','Đang tạo đọc hiểu...','Đang tạo từ vựng...','Đang tạo ngữ pháp...','Đang tạo cụm từ...','Sắp xong rồi...'];
   let mi = 0;
-  const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = msgs[mi++ % msgs.length]; }, 1800);
+  const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = loadMsgs[mi++ % loadMsgs.length]; }, 2000);
+
+  const isAll = numQRaw === 'all';
+  const N = isAll ? 'ALL possible, no limit' : numQRaw;
+  const vi = 'Use full Vietnamese diacritics.';
+  const R = 'JSON only, no markdown.';
+  const fmt0 = '{"questions":[{"q":"","options":["","","",""],"answer":0}]}';
+  const fmt1 = '{"questions":[{"q":"","context":"","options":["","","",""],"answer":0}]}';
+
+  const prompts = {
+    vocabulary: [
+      'VI->EN vocab MCQ. q=VI meaning, context=short VI note to distinguish synonyms, options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
+      'Ex:{"q":"thiết bị","context":"đồ điện tử cầm tay","options":["devices","appliances","machines","tools"],"answer":0}',
+      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt1
+    ].join('\n'),
+    phrases: [
+      'VI->EN phrase MCQ. q=VI meaning, options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
+      'Ex:{"q":"đưa ra quyết định","options":["make a decision","do a decision","take a decision","have a decision"],"answer":0}',
+      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n'),
+    grammar: [
+      'EN grammar MCQ. Test tenses/articles/prepositions/verb forms. 4 opts, answer=0-based index.',
+      'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n'),
+    comprehension: [
+      'EN reading comprehension MCQ. 4 opts, answer=0-based index.',
+      'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n')
+  };
+
+  const parseRaw = (raw, key) => {
+    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return [];
+    try { return (JSON.parse(m[0]).questions || []).map(q => ({...q, type: key})); }
+    catch(e) { return []; }
+  };
+
+  const getRaw = (r) => {
+    if (typeof r === 'string') return r;
+    if (r?.message?.content) return Array.isArray(r.message.content) ? r.message.content.map(b=>b.text||'').join('') : r.message.content;
+    if (r?.content) return Array.isArray(r.content) ? r.content.map(b=>b.text||'').join('') : r.content;
+    return '';
+  };
 
   try {
-    const response = await puter.ai.chat(prompt, { model: 'claude-sonnet-4-5' });
+    const maxTok = isAll ? 4000 : 2000;
+    const [r0,r1,r2,r3] = await Promise.all([
+      puter.ai.chat(prompts.vocabulary,    { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.phrases,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.grammar,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.comprehension, { model: 'gpt-4o-mini', max_tokens: maxTok }),
+    ]);
     clearInterval(mTimer);
-    let raw = '';
-    if (typeof response === 'string') raw = response;
-    else if (response?.message?.content) raw = Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content;
-    else if (response?.content) raw = Array.isArray(response.content) ? response.content.map(b=>b.text||'').join('') : response.content;
-    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON');
-    const data = JSON.parse(jsonMatch[0]);
-    const questions = data.questions || [];
-    if (!questions.length) throw new Error('Empty');
-    // For phrases mode: fix any missing Vietnamese diacritics via a second AI call
-    let finalQuestions = questions;
-    if (qType === 'phrases') {
-      const needsFix = questions.some(q => /[aeiouy][^\u0300-\u036f\u1ea0-\u1ef9]/i.test(q.q) && !/[àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/u.test(q.q));
-      if (needsFix) {
-        try {
-          const fixPrompt = 'Below is a JSON array of Vietnamese phrases that may be missing diacritical marks (dấu tiếng Việt). Fix ALL "q" values so they have proper Vietnamese Unicode diacritics. Do NOT change any "options" or "answer" fields. Return ONLY the corrected JSON array, nothing else.\n\n' + JSON.stringify(questions.map(q => ({q: q.q})));
-          const fixRes = await puter.ai.chat(fixPrompt, { model: 'claude-sonnet-4-5' });
-          let fixRaw = typeof fixRes === 'string' ? fixRes : (fixRes?.message?.content || fixRes?.content || '');
-          if (Array.isArray(fixRaw)) fixRaw = fixRaw.map(b=>b.text||'').join('');
-          fixRaw = fixRaw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-          const fixMatch = fixRaw.match(/\[[\s\S]*\]/);
-          if (fixMatch) {
-            const fixedQs = JSON.parse(fixMatch[0]);
-            finalQuestions = questions.map((q, i) => ({ ...q, q: fixedQs[i]?.q || q.q }));
-          }
-        } catch(e) { /* silently keep original if fix fails */ }
-      }
-    }
-    window._aiGeneratedQuestions = finalQuestions;
-    renderAIPreview(finalQuestions);
+    const allResults = [
+      { key:'vocabulary',    questions: parseRaw(getRaw(r0),'vocabulary') },
+      { key:'phrases',       questions: parseRaw(getRaw(r1),'phrases') },
+      { key:'grammar',       questions: parseRaw(getRaw(r2),'grammar') },
+      { key:'comprehension', questions: parseRaw(getRaw(r3),'comprehension') },
+    ];
+    window._aiGeneratedByType = allResults;
+    renderAIPreviewByType(allResults);
     document.getElementById('ai-preview').style.display = 'block';
-    toast(`✨ AI đã tạo ${finalQuestions.length} câu hỏi!`, 'success');
+    const total = allResults.reduce((s,r)=>s+r.questions.length,0);
+    toast(`✨ AI đã tạo ${total} câu hỏi (4 dạng)!`,'success');
   } catch(err) {
     clearInterval(mTimer);
-    toast('AI gặp lỗi. Vui lòng thử lại!', 'error');
+    console.error(err);
+    toast('AI gặp lỗi. Vui lòng thử lại!','error');
   } finally {
     document.getElementById('btn-generate').disabled = false;
     document.getElementById('ai-loading').classList.remove('visible');
   }
 }
 
-function renderAIPreview(questions) {
+
+function renderAIPreviewByType(allResults) {
   const letters = ['A','B','C','D'];
-  document.getElementById('ai-preview-list').innerHTML = questions.map((q,i) => `
-    <div class="preview-q">
-      <div class="preview-q-text">${i+1}. ${q.q}</div>
-      <div class="preview-opts">${q.options.map((o,j)=>`<div class="preview-opt ${j===q.answer?'correct':''}">${letters[j]}. ${o}${j===q.answer?' ✓':''}</div>`).join('')}</div>
-    </div>`).join('');
+  const typeNames = { comprehension:'Đọc hiểu', vocabulary:'Từ vựng', grammar:'Ngữ pháp', phrases:'Cụm từ' };
+  const typeIcons = { comprehension:'📖', vocabulary:'📝', grammar:'✏️', phrases:'💬' };
+  document.getElementById('ai-preview-list').innerHTML = allResults.map(res => `
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <span style="font-size:18px">${typeIcons[res.key]}</span>
+        <strong style="font-size:14px">${typeNames[res.key]}</strong>
+        <span class="badge">${res.questions.length} câu</span>
+      </div>
+      ${res.questions.length === 0
+        ? '<div style="color:var(--muted);font-size:13px;padding:8px">Không có câu hỏi nào được tạo</div>'
+        : res.questions.map((q,i) => `
+        <div class="preview-q">
+          <div class="preview-q-text">${i+1}. ${q.q}</div>
+          <div class="preview-opts">${q.options.map((o,j)=>`<div class="preview-opt ${j===q.answer?'correct':''}">${letters[j]}. ${o}${j===q.answer?' ✓':''}</div>`).join('')}</div>
+        </div>`).join('')}
+    </div>
+  `).join('');
+}
+
+// keep old renderAIPreview as alias
+function renderAIPreview(questions) {
+  renderAIPreviewByType([{key:'comprehension', questions}]);
 }
 
 function addAIQuestionsToQuiz() {
-  const qs = window._aiGeneratedQuestions || [];
-  if (!qs.length) return;
-  pendingQuestions.push(...qs);
+  const allResults = window._aiGeneratedByType || [];
+  if (!allResults.length) return;
+  const allQs = allResults.flatMap(r => r.questions);
+  if (!allQs.length) return;
+  pendingQuestions.push(...allQs);
+  // Save source text for review after quiz
+  window._pendingSourceText = document.getElementById('ai-text').value.trim();
   renderAllQuestions();
   document.getElementById('ai-preview').style.display = 'none';
   document.getElementById('ai-text').value = '';
-  toast(`✅ Đã thêm ${qs.length} câu hỏi vào đề!`, 'success');
+  toast(`✅ Đã thêm ${allQs.length} câu hỏi (${allResults.length} dạng) vào đề!`, 'success');
 }
 
 function clearAI() {
@@ -628,6 +680,8 @@ function clearAI() {
   document.getElementById('ai-preview').style.display = 'none';
   window._aiGeneratedQuestions = [];
 }
+
+
 
 // ===================== MANUAL =====================
 function addQuestion(prefill = null) {
@@ -712,7 +766,7 @@ async function saveQuiz() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '⏳ Đang lưu lên Supabase...'; }
   try {
     setLoading(true);
-    await dbSaveQuiz({ name, time, desc, questions: allQ, aiGenerated: pendingQuestions.length > 0 });
+    await dbSaveQuiz({ name, time, desc, questions: allQ, aiGenerated: pendingQuestions.length > 0, sourceText: window._pendingSourceText || '' });
     clearForm();
     toast('✅ Đã lưu bộ đề lên Supabase!', 'success');
     showPage('home');
@@ -734,12 +788,56 @@ function clearForm() {
 }
 
 // ===================== PLAY =====================
-function startQuiz(id) {
-  currentQuiz = quizzes.find(q => q.id === id);
+function selectMode(id) {
+  const quiz = quizzes.find(q => q.id === id);
+  if (!quiz) return;
+
+  const typeMap = { comprehension:'Đọc hiểu', vocabulary:'Từ vựng', grammar:'Ngữ pháp', phrases:'Cụm từ' };
+  const typeIcons = { comprehension:'📖', vocabulary:'📝', grammar:'✏️', phrases:'💬' };
+  const typeDescs = {
+    comprehension: 'Câu hỏi về nội dung bài đọc',
+    vocabulary: 'Nghĩa tiếng Việt → chọn từ tiếng Anh',
+    grammar: 'Câu hỏi ngữ pháp từ bài',
+    phrases: 'Nghĩa tiếng Việt → chọn cụm từ tiếng Anh'
+  };
+
+  const hasTypes = quiz.questions.some(q => q.type);
+  if (!hasTypes) { startQuiz(id, null); return; }
+
+  const typeCounts = {};
+  quiz.questions.forEach(q => { const t = q.type||'comprehension'; typeCounts[t]=(typeCounts[t]||0)+1; });
+
+  document.getElementById('mode-quiz-title').textContent = quiz.name;
+  document.getElementById('mode-list').innerHTML = [
+    `<div class="mode-card" onclick="startQuiz('${id}',null)">
+      <div class="mode-icon">🎯</div>
+      <div class="mode-info"><div class="mode-name">Tất cả dạng</div><div class="mode-desc">Luyện tập toàn bộ ${quiz.questions.length} câu hỏi</div></div>
+      <div class="mode-count">${quiz.questions.length} câu</div>
+    </div>`,
+    ...Object.keys(typeMap).map(t => {
+      const count = typeCounts[t]||0;
+      const dis = count===0;
+      return `<div class="mode-card ${dis?'disabled':''}" ${!dis?`onclick="startQuiz('${id}','${t}')"`:''}> 
+        <div class="mode-icon">${typeIcons[t]}</div>
+        <div class="mode-info"><div class="mode-name">${typeMap[t]}</div><div class="mode-desc">${typeDescs[t]}</div></div>
+        <div class="mode-count">${count} câu</div>
+      </div>`;
+    })
+  ].join('');
+  showPage('mode');
+}
+
+function startQuiz(id, filterType) {
+  const quiz = quizzes.find(q => q.id === id);
+  if (!quiz) return;
+  const filteredQuestions = filterType
+    ? quiz.questions.filter(q => (q.type||'comprehension') === filterType)
+    : quiz.questions;
+  currentQuiz = { ...quiz, questions: filteredQuestions };
   if (!currentQuiz) return;
   currentQ = 0;
-  userAnswers = new Array(currentQuiz.questions.length).fill(null);
-  timeLeft = currentQuiz.time * 60;
+  userAnswers = new Array(filteredQuestions.length).fill(null);
+  timeLeft = quiz.time * 60;
   showPage('quiz');
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   renderQuestion(); startTimer();
@@ -751,7 +849,9 @@ function renderQuestion() {
   document.getElementById('quiz-play-title').textContent = currentQuiz.name;
   document.getElementById('progress-fill').style.width = ((currentQ+1)/total*100)+'%';
   document.getElementById('q-counter').textContent = `Câu ${currentQ+1} / ${total}`;
-  document.getElementById('question-text').textContent = `${currentQ+1}. ${q.q}`;
+  const contextHtml = (q.context && q.type === 'vocabulary')
+    ? `<div style="font-size:13px;color:var(--muted);margin-top:4px;font-style:italic">💡 ${q.context}</div>` : '';
+  document.getElementById('question-text').innerHTML = `<span>${currentQ+1}. ${q.q}</span>${contextHtml}`;
   const letters = ['A','B','C','D'];
   document.getElementById('options-container').innerHTML = q.options.map((o,i) =>
     `<button class="option-btn ${userAnswers[currentQ]===i?'selected':''}" onclick="selectOption(${i})" ${userAnswers[currentQ]!==null?'disabled':''}>
@@ -829,13 +929,25 @@ async function finishQuiz() {
   document.getElementById('review-list').innerHTML = qs.map((q,i)=>{
     const ua=userAnswers[i]; const ok=ua===q.answer;
     return `<div class="review-item ${ok?'correct':'wrong'}">
-      <div class="review-q">${i+1}. ${q.q}</div>
+      <div class="review-q">${i+1}. ${q.q}${q.context && q.type==='vocabulary' ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">💡 ${q.context}</div>` : ''}</div>
       <div class="review-answer">
         ${ua!==null?`Bạn chọn: <strong style="color:${ok?'var(--success)':'var(--danger)'}">${['A','B','C','D'][ua]}. ${q.options[ua]}</strong><br>`:'<span style="color:var(--warning)">Chưa trả lời</span><br>'}
         Đáp án đúng: <strong style="color:var(--success)">${['A','B','C','D'][q.answer]}. ${q.options[q.answer]}</strong>
       </div></div>`;}).join('');
 
   document.getElementById('review-section').style.display='none';
+  document.getElementById('source-section').style.display='none';
+
+  // Show "Xem bài đọc" button only if source text exists
+  const srcText = currentQuiz.sourceText || '';
+  const btnSrc = document.getElementById('btn-source');
+  if (srcText) {
+    btnSrc.style.display = 'inline-flex';
+    document.getElementById('source-text-content').textContent = srcText;
+  } else {
+    btnSrc.style.display = 'none';
+  }
+
   showPage('result');
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
 }
@@ -845,7 +957,13 @@ function toggleReview() {
   s.style.display=s.style.display==='none'?'block':'none';
   if(s.style.display==='block') s.scrollIntoView({behavior:'smooth'});
 }
-function retryQuiz(){startQuiz(currentQuiz.id);}
+
+function toggleSource() {
+  const s=document.getElementById('source-section');
+  s.style.display=s.style.display==='none'?'block':'none';
+  if(s.style.display==='block') s.scrollIntoView({behavior:'smooth'});
+}
+function retryQuiz(){selectMode(currentQuiz.id);}
 
 // ===================== LEADERBOARD =====================
 function renderLeaderboard() {
