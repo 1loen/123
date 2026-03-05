@@ -561,78 +561,72 @@ async function generateWithAI() {
   const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = loadMsgs[mi++ % loadMsgs.length]; }, 2000);
 
   const isAll = numQRaw === 'all';
-  const more = isAll ? ' ALL items, no limit.' : '';
-  const buildPrompt = (type, n) => {
-    const N = `N=${n}${more}`;
-    const R = 'JSON only.';
-    const fmt0 = '{"questions":[{"q":"","options":["","","",""],"answer":0}]}';
-    const fmt1 = '{"questions":[{"q":"","context":"","options":["","","",""],"answer":0}]}';
-    const vi = 'Use full Vietnamese diacritics in q+context.';
-    if (type === 'vocabulary') return [
-      'VI->EN vocab MCQ. q=VI meaning, context=short VI usage note(distinguish from synonyms), options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
+  const N = isAll ? 'ALL possible, no limit' : numQRaw;
+  const vi = 'Use full Vietnamese diacritics.';
+  const R = 'JSON only, no markdown.';
+  const fmt0 = '{"questions":[{"q":"","options":["","","",""],"answer":0}]}';
+  const fmt1 = '{"questions":[{"q":"","context":"","options":["","","",""],"answer":0}]}';
+
+  const prompts = {
+    vocabulary: [
+      'VI->EN vocab MCQ. q=VI meaning, context=short VI note to distinguish synonyms, options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
       'Ex:{"q":"thiết bị","context":"đồ điện tử cầm tay","options":["devices","appliances","machines","tools"],"answer":0}',
-      vi, N, 'T: + text + ', R, fmt1
-    ].join('\n');
-    if (type === 'phrases') return [
+      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt1
+    ].join('\n'),
+    phrases: [
       'VI->EN phrase MCQ. q=VI meaning, options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
       'Ex:{"q":"đưa ra quyết định","options":["make a decision","do a decision","take a decision","have a decision"],"answer":0}',
-      vi, N, 'T: + text + ', R, fmt0
-    ].join('\n');
-    if (type === 'grammar') return [
-      'EN grammar MCQ from text. Test tenses/articles/prepositions/verb forms. 4 opts, answer=0-based index.',
-      N, 'T: + text + ', R, fmt0
-    ].join('\n');
-    return [
+      vi, 'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n'),
+    grammar: [
+      'EN grammar MCQ. Test tenses/articles/prepositions/verb forms. 4 opts, answer=0-based index.',
+      'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n'),
+    comprehension: [
       'EN reading comprehension MCQ. 4 opts, answer=0-based index.',
-      N, 'T: + text + ', R, fmt0
-    ].join('\n');
+      'Make ' + N + ' questions. T: + text + ', R, fmt0
+    ].join('\n')
   };
 
-  // Build single combined prompt
-  const combinedPrompt = [
-    'Generate 4 types of MCQ from the text below. Return a single JSON object with 4 keys.',
-    isAll ? `Each type: ALL possible questions, no limit.` : `Each type: exactly ${numQ} questions.`,
-    '',
-    'VOCAB: q=Vietnamese meaning(with diacritics), context=short Vietnamese usage note to distinguish synonyms, options=4 EN words(1 correct+3 plausible same POS), answer=0-based index.',
-    'PHRASES: q=Vietnamese meaning(with diacritics), options=4 EN collocations/phrasal verbs(1 correct+3 wrong), answer=0-based index.',
-    'GRAMMAR: EN grammar MCQ testing tenses/articles/prepositions. options=4 EN choices, answer=0-based index.',
-    'COMPREHENSION: EN reading comprehension MCQ. options=4 EN choices, answer=0-based index.',
-    '',
-    'TEXT:"""' + text + '"""',
-    '',
-    'Return ONLY this JSON structure, no markdown:',
-    '{"vocabulary":[{"q":"","context":"","options":["","","",""],"answer":0}],"phrases":[{"q":"","options":["","","",""],"answer":0}],"grammar":[{"q":"","options":["","","",""],"answer":0}],"comprehension":[{"q":"","options":["","","",""],"answer":0}]}'
-  ].join('\n');
+  const parseRaw = (raw, key) => {
+    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return [];
+    try { return (JSON.parse(m[0]).questions || []).map(q => ({...q, type: key})); }
+    catch(e) { return []; }
+  };
+
+  const getRaw = (r) => {
+    if (typeof r === 'string') return r;
+    if (r?.message?.content) return Array.isArray(r.message.content) ? r.message.content.map(b=>b.text||'').join('') : r.message.content;
+    if (r?.content) return Array.isArray(r.content) ? r.content.map(b=>b.text||'').join('') : r.content;
+    return '';
+  };
 
   try {
-    const response = await puter.ai.chat(combinedPrompt, { model: 'gpt-4o-mini', max_tokens: isAll ? 6000 : 3000 });
-    let raw = typeof response === 'string' ? response
-      : (response?.message?.content ? (Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content)
-      : (Array.isArray(response?.content) ? response.content.map(b=>b.text||'').join('') : response?.content || ''));
-    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON');
-    const parsed = JSON.parse(jsonMatch[0]);
-    const typeKeys = ['vocabulary','phrases','grammar','comprehension'];
-    const typeIcons2 = { vocabulary:'📝', phrases:'💬', grammar:'✏️', comprehension:'📖' };
-    const allResults = typeKeys.map(key => ({
-      key, icon: typeIcons2[key],
-      questions: (parsed[key] || []).map(q => ({ ...q, type: key }))
-    }));
-
+    const maxTok = isAll ? 4000 : 2000;
+    const [r0,r1,r2,r3] = await Promise.all([
+      puter.ai.chat(prompts.vocabulary,    { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.phrases,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.grammar,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.comprehension, { model: 'gpt-4o-mini', max_tokens: maxTok }),
+    ]);
     clearInterval(mTimer);
-
-    // diacritics handled in single prompt
-
+    const allResults = [
+      { key:'vocabulary',    questions: parseRaw(getRaw(r0),'vocabulary') },
+      { key:'phrases',       questions: parseRaw(getRaw(r1),'phrases') },
+      { key:'grammar',       questions: parseRaw(getRaw(r2),'grammar') },
+      { key:'comprehension', questions: parseRaw(getRaw(r3),'comprehension') },
+    ];
     window._aiGeneratedByType = allResults;
     renderAIPreviewByType(allResults);
     document.getElementById('ai-preview').style.display = 'block';
     const total = allResults.reduce((s,r)=>s+r.questions.length,0);
-    toast(`✨ AI đã tạo ${total} câu hỏi (${allResults.length} dạng)!`, 'success');
+    toast(`✨ AI đã tạo ${total} câu hỏi (4 dạng)!`,'success');
   } catch(err) {
     clearInterval(mTimer);
     console.error(err);
-    toast('AI gặp lỗi. Vui lòng thử lại!', 'error');
+    toast('AI gặp lỗi. Vui lòng thử lại!','error');
   } finally {
     document.getElementById('btn-generate').disabled = false;
     document.getElementById('ai-loading').classList.remove('visible');
