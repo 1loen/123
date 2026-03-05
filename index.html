@@ -194,7 +194,7 @@
 <!-- CREATE -->
 <div id="page-create" class="page">
   <h1>Tạo đề thi</h1>
-  <p class="subtitle">Tạo thủ công hoặc để AI sinh câu hỏi từ bài đọc của bạn</p>
+  <p class="subtitle">Tạo thủ công hoặc để AI sinh câu hỏi từ vựng và cụm từ</p>
 
   <div class="card">
     <h3>Thông tin bộ đề</h3>
@@ -224,7 +224,7 @@
     <div id="ai-panel">
       <div class="ai-box">
         <div class="ai-box-title">✨ Tạo câu hỏi bằng AI</div>
-        <div class="ai-box-sub">Dán bài đọc vào — AI sẽ tự tạo <strong>4 dạng câu hỏi</strong>: Đọc hiểu, Từ vựng, Ngữ pháp, Cụm từ</div>
+        <div class="ai-box-sub">Dán bài đọc vào — AI sẽ tự tạo <strong>2 dạng câu hỏi</strong>: Từ vựng &amp; Cụm từ</div>
 
         <div class="form-group">
           <label>Đoạn văn / Bài đọc *</label>
@@ -234,9 +234,9 @@
           <label>Số câu hỏi mỗi dạng</label>
           <select id="ai-num-q">
             <option value="3">3 câu / dạng</option>
-            <option value="5" selected>5 câu / dạng</option>
+            <option value="5">5 câu / dạng</option>
             <option value="8">8 câu / dạng</option>
-            <option value="all">Tất cả có trong bài</option>
+            <option value="all" selected>Tất cả có trong bài</option>
           </select>
         </div>
       </div>
@@ -556,7 +556,7 @@ async function generateWithAI() {
   document.getElementById('ai-loading').classList.add('visible');
   document.getElementById('ai-preview').style.display = 'none';
 
-  const loadMsgs = ['AI đang đọc bài...','Đang tạo đọc hiểu...','Đang tạo từ vựng...','Đang tạo ngữ pháp...','Đang tạo cụm từ...','Sắp xong rồi...'];
+  const loadMsgs = ['AI đang đọc bài...','Đang tạo từ vựng...','Đang tạo cụm từ...','Sắp xong rồi...'];
   let mi = 0;
   const mTimer = setInterval(() => { document.getElementById('ai-loading-text').textContent = loadMsgs[mi++ % loadMsgs.length]; }, 2000);
 
@@ -605,24 +605,20 @@ async function generateWithAI() {
 
   try {
     const maxTok = isAll ? 4000 : 2000;
-    const [r0,r1,r2,r3] = await Promise.all([
-      puter.ai.chat(prompts.vocabulary,    { model: 'gpt-4o-mini', max_tokens: maxTok }),
-      puter.ai.chat(prompts.phrases,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
-      puter.ai.chat(prompts.grammar,       { model: 'gpt-4o-mini', max_tokens: maxTok }),
-      puter.ai.chat(prompts.comprehension, { model: 'gpt-4o-mini', max_tokens: maxTok }),
+    const [r0,r1] = await Promise.all([
+      puter.ai.chat(prompts.vocabulary, { model: 'gpt-4o-mini', max_tokens: maxTok }),
+      puter.ai.chat(prompts.phrases,    { model: 'gpt-4o-mini', max_tokens: maxTok }),
     ]);
     clearInterval(mTimer);
     const allResults = [
-      { key:'vocabulary',    questions: parseRaw(getRaw(r0),'vocabulary') },
-      { key:'phrases',       questions: parseRaw(getRaw(r1),'phrases') },
-      { key:'grammar',       questions: parseRaw(getRaw(r2),'grammar') },
-      { key:'comprehension', questions: parseRaw(getRaw(r3),'comprehension') },
+      { key:'vocabulary', questions: parseRaw(getRaw(r0),'vocabulary') },
+      { key:'phrases',    questions: parseRaw(getRaw(r1),'phrases') },
     ];
     window._aiGeneratedByType = allResults;
     renderAIPreviewByType(allResults);
     document.getElementById('ai-preview').style.display = 'block';
     const total = allResults.reduce((s,r)=>s+r.questions.length,0);
-    toast(`✨ AI đã tạo ${total} câu hỏi (4 dạng)!`,'success');
+    toast(`✨ AI đã tạo ${total} câu hỏi (2 dạng)!`,'success');
   } catch(err) {
     clearInterval(mTimer);
     console.error(err);
@@ -636,8 +632,8 @@ async function generateWithAI() {
 
 function renderAIPreviewByType(allResults) {
   const letters = ['A','B','C','D'];
-  const typeNames = { comprehension:'Đọc hiểu', vocabulary:'Từ vựng', grammar:'Ngữ pháp', phrases:'Cụm từ' };
-  const typeIcons = { comprehension:'📖', vocabulary:'📝', grammar:'✏️', phrases:'💬' };
+  const typeNames = { vocabulary:'Từ vựng', phrases:'Cụm từ' };
+  const typeIcons = { vocabulary:'📝', phrases:'💬' };
   document.getElementById('ai-preview-list').innerHTML = allResults.map(res => `
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
@@ -792,12 +788,10 @@ function selectMode(id) {
   const quiz = quizzes.find(q => q.id === id);
   if (!quiz) return;
 
-  const typeMap = { comprehension:'Đọc hiểu', vocabulary:'Từ vựng', grammar:'Ngữ pháp', phrases:'Cụm từ' };
-  const typeIcons = { comprehension:'📖', vocabulary:'📝', grammar:'✏️', phrases:'💬' };
+  const typeMap = { vocabulary:'Từ vựng', phrases:'Cụm từ' };
+  const typeIcons = { vocabulary:'📝', phrases:'💬' };
   const typeDescs = {
-    comprehension: 'Câu hỏi về nội dung bài đọc',
     vocabulary: 'Nghĩa tiếng Việt → chọn từ tiếng Anh',
-    grammar: 'Câu hỏi ngữ pháp từ bài',
     phrases: 'Nghĩa tiếng Việt → chọn cụm từ tiếng Anh'
   };
 
