@@ -605,7 +605,7 @@ Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D
   try {
     const allResults = await Promise.all(types.map(async (t) => {
       const prompt = buildPrompt(t.key, numQ).replace(/\$\{text\}/g, text).replace(/\$\{n\}/g, numQ).replace(/\$\{numQ\}/g, numQ);
-      const response = await puter.ai.chat(prompt, { model: 'claude-sonnet-4-5', max_tokens: isAll ? 4000 : 2000 });
+      const response = await puter.ai.chat(prompt, { model: 'gpt-4o', max_tokens: isAll ? 4000 : 2000 });
       let raw = typeof response === 'string' ? response
         : (response?.message?.content ? (Array.isArray(response.message.content) ? response.message.content.map(b=>b.text||'').join('') : response.message.content)
         : (Array.isArray(response?.content) ? response.content.map(b=>b.text||'').join('') : response?.content || ''));
@@ -627,7 +627,7 @@ Return ONLY valid JSON: {"questions":[{"q":"Question?","options":["A","B","C","D
       if (!needsFix) continue;
       try {
         const fixPrompt = 'Fix ALL "q" values in this JSON array so they have proper Vietnamese Unicode diacritics. Keep options/answer unchanged. Return ONLY the corrected JSON array.\n\n' + JSON.stringify(res.questions.map(q=>({q:q.q})));
-        const fixRes = await puter.ai.chat(fixPrompt, { model: 'claude-sonnet-4-5' });
+        const fixRes = await puter.ai.chat(fixPrompt, { model: 'gpt-4o' });
         let fixRaw = typeof fixRes === 'string' ? fixRes : (fixRes?.message?.content || fixRes?.content || '');
         if (Array.isArray(fixRaw)) fixRaw = fixRaw.map(b=>b.text||'').join('');
         fixRaw = fixRaw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
